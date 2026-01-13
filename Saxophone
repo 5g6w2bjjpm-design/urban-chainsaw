@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sax Fingering Trainer</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; padding: 16px; max-width: 980px; margin-inline: auto; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .row { display: grid; gap: 16px; grid-template-columns: 1fr; }
+    @media (min-width: 860px) { .row { grid-template-columns: 360px 1fr; } }
+
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+    .pill { border:1px solid #ddd; border-radius:999px; padding:6px 10px; font-size: 13px; }
+    .ok { border-color: #2d8a34; background: #eaf7ec; }
+    .bad { border-color: #b21f2d; background: #fdecee; }
+    button { border: 1px solid #ccc; border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; }
+    button:active { transform: translateY(1px); }
+    .btnrow { display:flex; gap:10px; flex-wrap:wrap; }
+
+    .keys { display:grid; gap: 10px; grid-template-columns: repeat(3, minmax(0,1fr)); }
+    @media (min-width: 860px) { .keys { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+
+    .key {
+      user-select:none;
+      border: 1px solid #bbb;
+      border-radius: 12px;
+      padding: 10px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-size: 14px;
+    }
+    .key.on { border-color:#111; background:#f3f3f3; }
+    .key small { opacity:0.7; }
+
+    .staffWrap { display:flex; align-items:center; justify-content:center; padding: 8px 0; }
+    .noteName { font-size: 18px; font-weight: 700; text-align:center; margin-top: 6px; }
+    .hint { font-size: 12px; opacity: 0.75; line-height: 1.35; }
+    .settings { display:grid; gap: 8px; }
+    label { font-size: 13px; display:flex; gap:8px; align-items:center; }
+    .gridNotes { display:grid; gap: 8px; grid-template-columns: repeat(4, minmax(0,1fr)); }
+    @media (min-width: 860px) { .gridNotes { grid-template-columns: repeat(6, minmax(0,1fr)); } }
+    .noteToggle { display:flex; gap:8px; align-items:center; border:1px solid #ddd; border-radius: 10px; padding: 8px; }
+    .muted { opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Sax Fingering Trainer (free PWA)</h1>
+    <div class="pill" id="scorePill">Score: 0 / 0</div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="staffWrap" aria-label="Sheet music note display">
+        <svg id="staff" width="320" height="180" viewBox="0 0 320 180" role="img">
+          <!-- staff lines -->
+          <g stroke="black" stroke-width="2" fill="none">
+            <line x1="30" y1="60" x2="290" y2="60"/>
+            <line x1="30" y1="80" x2="290" y2="80"/>
+            <line x1="30" y1="100" x2="290" y2="100"/>
+            <line x1="30" y1="120" x2="290" y2="120"/>
+            <line x1="30" y1="140" x2="290" y2="140"/>
+          </g>
+
+          <!-- treble clef (simple) -->
+          <text x="40" y="128" font-size="80">𝄞</text>
+
+          <!-- note -->
+          <g id="noteGroup"></g>
+        </svg>
+      </div>
+
+      <div class="noteName" id="noteLabel">—</div>
+      <p class="hint" id="feedbackHint">
+        Tap keys on the sax diagram, then hit <b>Check</b>.
+      </p>
+
+      <div class="btnrow">
+        <button id="checkBtn">Check</button>
+        <button id="nextBtn">Next note</button>
+        <button id="clearBtn">Clear keys</button>
+      </div>
+
+      <hr style="border:none;border-top:1px solid #eee;margin:12px 0;" />
+
+      <div class="settings">
+        <div class="pill">Enabled notes (starter set)</div>
+        <div class="gridNotes" id="noteToggles"></div>
+
+        <p class="hint">
+          This starter uses common “main keys + octave + palm keys/front F”. Sax fingerings can have alternates,
+          so you can edit the <code>FINGERINGS</code> object in the code to match what you’re learning.
+          Notes D5+ generally use the octave key with related fingerings.  [oai_citation:1‡The Online Metronome](https://theonlinemetronome.com/fingering-charts/3/saxophone-fingering-chart?utm_source=chatgpt.com)
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="pill">2D Sax Key Diagram (tap to press/release)</div>
+      <div class="keys" id="keys"></div>
+      <p class="hint muted">
+        Keys included: Octave, LH1–LH3, RH1–RH3, Front F, Palm D/Eb/E, Side Bb (starter).
+        Add more (Side C, Side Eb, F# key, low Bb/C/C#, etc.) if you want full chromatic accuracy.
+      </p>
+    </div>
+  </div>
+
+<script>
+/**
+ * KEY IDS used in this MVP
+ */
+const KEY_IDS = [
+  ["OCT", "Octave", "LH thumb"],
+  ["LH1", "LH1", "index"],
+  ["LH2", "LH2", "middle"],
+  ["LH3", "LH3", "ring"],
+  ["RH1", "RH1", "index"],
+  ["RH2", "RH2", "middle"],
+  ["RH3", "RH3", "ring"],
+  ["FNTF", "Front F", "LH index alt"],
+  ["PLMD", "Palm D", "LH palm"],
+  ["PLMEb","Palm Eb", "LH palm"],
+  ["PLME", "Palm E", "LH palm"],
+  ["SDBb", "Side Bb", "RH side"],
+];
+
+/**
+ * Notes we will offer in the “enabled notes” UI.
+ * This is a STARTER selection (diatonic-ish) spanning B3–F6.
+ * You can add sharps/flats + extra keys later.
+ */
+const ALL_NOTES = [
+  "B3","C4","D4","E4","F4","G4","A4","B4",
+  "C5","D5","E5","F5","G5","A5","B5",
+  "C6","D6","E6","F6"
+];
+
+/**
+ * STARTER FINGERINGS
+ * Format: note -> array of key IDs that should be DOWN.
+ *
+ * These are “basic/common” fingerings for many beginners’ charts.
+ * Adjust to match your teacher’s chart / your horn as needed.
+ *
+ * Notes:
+ * - B3: all six main keys
+ * - C4: LH1-3 + RH1-2
+ * - D4: LH1-3
+ * - E4: LH1-2
+ * - F4: LH1
+ * - G4: no main keys (open)  [common starting point]
+ * - A4: LH1
+ * - B4: LH1-2
+ * - From D5 upwards: add OCT (octave key).  [oai_citation:2‡The Online Metronome](https://theonlinemetronome.com/fingering-charts/3/saxophone-fingering-chart?utm_source=chatgpt.com)
+ * - High E6/F6: use palm keys; F6 often uses Front F + Palm keys on many charts (varies).
+ */
+const FINGERINGS = {
+  "B3": ["LH1","LH2","LH3","RH1","RH2","RH3"],
+  "C4": ["LH1","LH2","LH3","RH1","RH2"],
+  "D4": ["LH1","LH2","LH3"],
+  "E4": ["LH1","LH2"],
+  "F4": ["LH1"],
+  "G4": [],
+  "A4": ["LH1"],
+  "B4": ["LH1","LH2"],
+
+  "C5": ["LH1","LH2","LH3","RH1","RH2"],        // like C4 but typically no RH3
+  "D5": ["OCT","LH1","LH2","LH3"],
+  "E5": ["OCT","LH1","LH2"],
+  "F5": ["OCT","LH1"],
+  "G5": ["OCT"],
+  "A5": ["OCT","LH1"],
+  "B5": ["OCT","LH1","LH2"],
+
+  "C6": ["OCT","LH1","LH2","LH3","FNTF"],       // often front F used in upper register (varies)
+  "D6": ["OCT","PLMD"],
+  "E6": ["OCT","PLME"],
+  "F6": ["OCT","PLMD","PLMEb","PLME","FNTF"],
+};
+
+let enabledNotes = new Set(ALL_NOTES); // default: all starter notes enabled
+let currentNote = null;
+let pressed = new Set();
+let correct = 0;
+let total = 0;
+
+// --- UI build: keys ---
+const keysDiv = document.getElementById("keys");
+for (const [id, label, sub] of KEY_IDS) {
+  const el = document.createElement("div");
+  el.className = "key";
+  el.dataset.key = id;
+  el.innerHTML = `<span><b>${label}</b><br><small>${sub}</small></span><span aria-hidden="true">●</span>`;
+  el.addEventListener("click", () => toggleKey(id));
+  keysDiv.appendChild(el);
+}
+
+function toggleKey(id) {
+  if (pressed.has(id)) pressed.delete(id);
+  else pressed.add(id);
+  renderKeys();
+}
+
+function clearKeys() {
+  pressed.clear();
+  renderKeys();
+  setFeedback("Tap keys on the sax diagram, then hit Check.", null);
+}
+
+function renderKeys() {
+  for (const el of keysDiv.querySelectorAll(".key")) {
+    const id = el.dataset.key;
+    el.classList.toggle("on", pressed.has(id));
+  }
+}
+
+// --- UI build: note toggles ---
+const togglesDiv = document.getElementById("noteToggles");
+ALL_NOTES.forEach(n => {
+  const wrap = document.createElement("div");
+  wrap.className = "noteToggle";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = true;
+  cb.addEventListener("change", () => {
+    if (cb.checked) enabledNotes.add(n);
+    else enabledNotes.delete(n);
+    if (!enabledNotes.size) enabledNotes.add(n), cb.checked = true; // keep at least one
+  });
+  const lab = document.createElement("div");
+  lab.innerHTML = `<b>${n}</b>`;
+  wrap.appendChild(cb);
+  wrap.appendChild(lab);
+  togglesDiv.appendChild(wrap);
+});
+
+// --- Note drawing on staff ---
+const noteGroup = document.getElementById("noteGroup");
+const noteLabel = document.getElementById("noteLabel");
+
+function noteToY(note) {
+  // Simple treble staff mapping around middle C = C4.
+  // Each diatonic step is 10px. This is a visual trainer, not engraving-perfect.
+  const steps = {
+    "B3": 11, "C4": 10, "D4": 9, "E4": 8, "F4": 7, "G4": 6, "A4": 5, "B4": 4,
+    "C5": 3, "D5": 2, "E5": 1, "F5": 0, "G5": -1, "A5": -2, "B5": -3,
+    "C6": -4, "D6": -5, "E6": -6, "F6": -7
+  };
+  const baseY = 120;         // roughly E4 line area
+  const stepPx = 10;
+  return baseY + (steps[note] ?? 0) * stepPx;
+}
+
+function drawNote(note) {
+  noteGroup.innerHTML = "";
+  const x = 220;
+  const y = noteToY(note);
+
+  // ledger lines if needed
+  const ledgerYs = [];
+  if (y > 140) ledgerYs.push(160, 180); // very low notes (not used in starter)
+  if (y < 60) ledgerYs.push(40, 20, 0); // high notes: add some ledger lines
+
+  for (const ly of ledgerYs) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1", x-24);
+    line.setAttribute("x2", x+24);
+    line.setAttribute("y1", ly);
+    line.setAttribute("y2", ly);
+    line.setAttribute("stroke","black");
+    line.setAttribute("stroke-width","2");
+    noteGroup.appendChild(line);
+  }
+
+  // note head
+  const head = document.createElementNS("http://www.w3.org/2000/svg","ellipse");
+  head.setAttribute("cx", x);
+  head.setAttribute("cy", y);
+  head.setAttribute("rx", 12);
+  head.setAttribute("ry", 8);
+  head.setAttribute("fill", "black");
+  head.setAttribute("transform", `rotate(-20 ${x} ${y})`);
+  noteGroup.appendChild(head);
+
+  // stem
+  const stem = document.createElementNS("http://www.w3.org/2000/svg","line");
+  stem.setAttribute("x1", x+10);
+  stem.setAttribute("x2", x+10);
+  stem.setAttribute("y1", y);
+  stem.setAttribute("y2", y-48);
+  stem.setAttribute("stroke","black");
+  stem.setAttribute("stroke-width","2");
+  noteGroup.appendChild(stem);
+}
+
+function randomNote() {
+  const arr = Array.from(enabledNotes);
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// --- feedback / scoring ---
+const scorePill = document.getElementById("scorePill");
+const feedbackHint = document.getElementById("feedbackHint");
+
+function setFeedback(text, kind /* "ok" | "bad" | null */) {
+  feedbackHint.classList.remove("ok","bad");
+  if (kind) feedbackHint.classList.add(kind);
+  feedbackHint.innerHTML = text;
+}
+
+function updateScore() {
+  scorePill.textContent = `Score: ${correct} / ${total}`;
+}
+
+// --- game actions ---
+function next() {
+  clearKeys();
+  currentNote = randomNote();
+  noteLabel.textContent = currentNote;
+  drawNote(currentNote);
+}
+
+function check() {
+  if (!currentNote) return;
+
+  const target = new Set(FINGERINGS[currentNote] ?? []);
+  const same =
+    target.size === pressed.size &&
+    [...target].every(k => pressed.has(k));
+
+  total += 1;
+  if (same) {
+    correct += 1;
+    setFeedback(`✅ Correct for <b>${currentNote}</b>`, "ok");
+  } else {
+    const t = [...target].sort().join(", ") || "— (open)";
+    const p = [...pressed].sort().join(", ") || "— (open)";
+    setFeedback(
+      `❌ Not quite for <b>${currentNote}</b><br><small>Expected: ${t}<br>Your keys: ${p}</small>`,
+      "bad"
+    );
+  }
+  updateScore();
+}
+
+document.getElementById("checkBtn").addEventListener("click", check);
+document.getElementById("nextBtn").addEventListener("click", next);
+document.getElementById("clearBtn").addEventListener("click", clearKeys);
+
+updateScore();
+next();
+</script>
+</body>
+</html>
